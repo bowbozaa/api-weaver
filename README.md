@@ -1,0 +1,3 @@
+# API Weaver
+
+MCP Architecture Monorepo - Initializing...
