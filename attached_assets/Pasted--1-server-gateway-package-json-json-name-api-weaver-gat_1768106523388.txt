@@ -1,0 +1,532 @@
+---
+
+## ไฟล์ที่ 1: server/gateway/package.json
+````json
+{
+  "name": "api-weaver-gateway",
+  "version": "1.0.0",
+  "description": "API Gateway for routing requests to MCP servers",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "tsx watch index.ts",
+    "start": "node index.js",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "http-proxy-middleware": "^2.0.6",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
+````
+
+---
+
+## ไฟล์ที่ 2: server/gateway/config.ts
+````typescript
+export const MCP_CONFIG = {
+  content: {
+    name: 'Content MCP',
+    host: process.env.CONTENT_MCP_HOST || 'localhost',
+    port: process.env.CONTENT_MCP_PORT || 3001,
+    healthCheck: '/health',
+    prefix: '/api/content',
+  },
+  integration: {
+    name: 'Integration MCP',
+    host: process.env.INTEGRATION_MCP_HOST || 'localhost',
+    port: process.env.INTEGRATION_MCP_PORT || 3002,
+    healthCheck: '/health',
+    prefix: '/api/integration',
+  },
+};
+
+export const GATEWAY_PORT = process.env.GATEWAY_PORT || 3000;
+export const PROXY_TIMEOUT = 30000;
+````
+
+---
+
+## ไฟล์ที่ 3: server/gateway/index.ts
+````typescript
+import express from 'express';
+import cors from 'cors';
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import { MCP_CONFIG, GATEWAY_PORT, PROXY_TIMEOUT } from './config';
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'API Gateway',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+app.get('/api/status', async (req, res) => {
+  const services = [];
+
+  try {
+    const contentUrl = `http://${MCP_CONFIG.content.host}:${MCP_CONFIG.content.port}${MCP_CONFIG.content.healthCheck}`;
+    const contentResponse = await fetch(contentUrl);
+    services.push({
+      name: MCP_CONFIG.content.name,
+      status: contentResponse.ok ? 'online' : 'offline',
+      url: contentUrl,
+    });
+  } catch (error) {
+    services.push({
+      name: MCP_CONFIG.content.name,
+      status: 'offline',
+      error: 'Connection failed',
+    });
+  }
+
+  try {
+    const integrationUrl = `http://${MCP_CONFIG.integration.host}:${MCP_CONFIG.integration.port}${MCP_CONFIG.integration.healthCheck}`;
+    const integrationResponse = await fetch(integrationUrl);
+    services.push({
+      name: MCP_CONFIG.integration.name,
+      status: integrationResponse.ok ? 'online' : 'offline',
+      url: integrationUrl,
+    });
+  } catch (error) {
+    services.push({
+      name: MCP_CONFIG.integration.name,
+      status: 'offline',
+      error: 'Connection failed',
+    });
+  }
+
+  res.json({
+    gateway: 'online',
+    services,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.use(
+  MCP_CONFIG.content.prefix,
+  createProxyMiddleware({
+    target: `http://${MCP_CONFIG.content.host}:${MCP_CONFIG.content.port}`,
+    changeOrigin: true,
+    pathRewrite: {
+      [`^${MCP_CONFIG.content.prefix}`]: '',
+    },
+    timeout: PROXY_TIMEOUT,
+    onError: (err, req, res) => {
+      console.error('Content MCP Proxy Error:', err);
+      res.status(503).json({
+        error: 'Content MCP unavailable',
+        message: err.message,
+      });
+    },
+  })
+);
+
+app.use(
+  MCP_CONFIG.integration.prefix,
+  createProxyMiddleware({
+    target: `http://${MCP_CONFIG.integration.host}:${MCP_CONFIG.integration.port}`,
+    changeOrigin: true,
+    pathRewrite: {
+      [`^${MCP_CONFIG.integration.prefix}`]: '',
+    },
+    timeout: PROXY_TIMEOUT,
+    onError: (err, req, res) => {
+      console.error('Integration MCP Proxy Error:', err);
+      res.status(503).json({
+        error: 'Integration MCP unavailable',
+        message: err.message,
+      });
+    },
+  })
+);
+
+app.get('/', (req, res) => {
+  res.json({
+    name: 'API Weaver Gateway',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      status: '/api/status',
+      content: MCP_CONFIG.content.prefix,
+      integration: MCP_CONFIG.integration.prefix,
+    },
+  });
+});
+
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: `Route ${req.path} not found`,
+  });
+});
+
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error('Gateway Error:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message,
+  });
+});
+
+app.listen(GATEWAY_PORT, () => {
+  console.log(`🚀 API Gateway running on http://localhost:${GATEWAY_PORT}`);
+  console.log(`📊 Status: http://localhost:${GATEWAY_PORT}/api/status`);
+  console.log(`📡 Content MCP: http://${MCP_CONFIG.content.host}:${MCP_CONFIG.content.port}`);
+  console.log(`📡 Integration MCP: http://${MCP_CONFIG.integration.host}:${MCP_CONFIG.integration.port}`);
+});
+````
+
+---
+
+## ไฟล์ที่ 4: server/content-mcp/package.json
+````json
+{
+  "name": "api-weaver-content-mcp",
+  "version": "1.0.0",
+  "description": "Content MCP - Handles AI, files, and content operations",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "tsx watch index.ts",
+    "start": "node index.js",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
+````
+
+---
+
+## ไฟล์ที่ 5: server/content-mcp/index.ts
+````typescript
+import express from 'express';
+import cors from 'cors';
+import routes from './routes';
+
+const app = express();
+const PORT = process.env.CONTENT_MCP_PORT || 3001;
+
+app.use(cors());
+app.use(express.json());
+
+app.use((req, res, next) => {
+  console.log(`[Content MCP] ${req.method} ${req.path}`);
+  next();
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'Content MCP',
+    port: PORT,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+app.use('/api', routes);
+
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Content MCP',
+    version: '1.0.0',
+    description: 'Handles content creation, AI processing, and file operations',
+    services: [
+      'AI Service (pending migration)',
+      'Comet Service (pending migration)',
+      'Notion Service (pending migration)',
+      'File Service (pending migration)',
+      'Command Service (pending migration)',
+    ],
+  });
+});
+
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error('[Content MCP Error]:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message,
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🎨 Content MCP running on http://localhost:${PORT}`);
+});
+````
+
+---
+
+## ไฟล์ที่ 6: server/content-mcp/routes/index.ts
+````typescript
+import { Router } from 'express';
+
+const router = Router();
+
+router.post('/ai/generate', (req, res) => {
+  res.json({
+    message: 'AI generation endpoint - pending service migration',
+    todo: 'Migrate aiService.ts here',
+  });
+});
+
+router.get('/notion/pages', (req, res) => {
+  res.json({
+    message: 'Notion pages endpoint - pending service migration',
+    todo: 'Migrate notionService.ts here',
+  });
+});
+
+router.post('/files/upload', (req, res) => {
+  res.json({
+    message: 'File upload endpoint - pending service migration',
+    todo: 'Migrate fileService.ts here',
+  });
+});
+
+export default router;
+````
+
+---
+
+## ไฟล์ที่ 7: server/integration-mcp/package.json
+````json
+{
+  "name": "api-weaver-integration-mcp",
+  "version": "1.0.0",
+  "description": "Integration MCP - Handles external service integrations",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "tsx watch index.ts",
+    "start": "node index.js",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
+````
+
+---
+
+## ไฟล์ที่ 8: server/integration-mcp/index.ts
+````typescript
+import express from 'express';
+import cors from 'cors';
+import routes from './routes';
+
+const app = express();
+const PORT = process.env.INTEGRATION_MCP_PORT || 3002;
+
+app.use(cors());
+app.use(express.json());
+
+app.use((req, res, next) => {
+  console.log(`[Integration MCP] ${req.method} ${req.path}`);
+  next();
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'Integration MCP',
+    port: PORT,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+app.use('/api', routes);
+
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Integration MCP',
+    version: '1.0.0',
+    description: 'Handles external service integrations and deployments',
+    services: [
+      'GitHub Service (pending migration)',
+      'Vercel Service (pending migration)',
+      'n8n Service (pending migration)',
+      'Supabase Service (pending migration)',
+      'GCloud Service (pending migration)',
+    ],
+  });
+});
+
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error('[Integration MCP Error]:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message,
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🔌 Integration MCP running on http://localhost:${PORT}`);
+});
+````
+
+---
+
+## ไฟล์ที่ 9: server/integration-mcp/routes/index.ts
+````typescript
+import { Router } from 'express';
+
+const router = Router();
+
+router.get('/github/repos', (req, res) => {
+  res.json({
+    message: 'GitHub repos endpoint - pending service migration',
+    todo: 'Migrate githubService.ts here',
+  });
+});
+
+router.post('/vercel/deploy', (req, res) => {
+  res.json({
+    message: 'Vercel deployment endpoint - pending service migration',
+    todo: 'Migrate vercelService.ts here',
+  });
+});
+
+router.post('/n8n/workflow', (req, res) => {
+  res.json({
+    message: 'n8n workflow endpoint - pending service migration',
+    todo: 'Migrate n8nService.ts here',
+  });
+});
+
+export default router;
+````
+
+---
+
+## ไฟล์ที่ 10: MIGRATION_GUIDE.md
+````markdown
+# 🔄 Migration Guide: MCP Architecture
+
+## 📊 Services Migration Map
+
+### Content MCP (Port 3001)
+ย้าย services เหล่านี้ไปที่ `server/content-mcp/services/`:
+- aiService.ts - AI generation
+- cometService.ts - AI models
+- notionService.ts - Content management
+- fileService.ts - File operations
+- commandService.ts - CLI operations
+
+### Integration MCP (Port 3002)
+ย้าย services เหล่านี้ไปที่ `server/integration-mcp/services/`:
+- githubService.ts - GitHub integration
+- vercelService.ts - Deployment
+- supabaseService.ts - Database
+- gcloudService.ts - Cloud services
+- n8nService.ts - Workflow automation
+- mcpService.ts - MCP protocol
+
+## 🚀 Quick Start
+
+### รัน 3 servers พร้อมกัน:
+
+Terminal 1:
+```bash
+cd server/gateway && npm run dev
+```
+
+Terminal 2:
+```bash
+cd server/content-mcp && npm run dev
+```
+
+Terminal 3:
+```bash
+cd server/integration-mcp && npm run dev
+```
+
+### ทดสอบ:
+- Gateway: http://localhost:3000
+- Status: http://localhost:3000/api/status
+- Content MCP: http://localhost:3001/health
+- Integration MCP: http://localhost:3002/health
+
+## 📝 Migration Steps
+
+1. Copy service file จาก `server/services/` ไปยัง MCP ที่เหมาะสม
+2. อัพเดท routes ใน `routes/index.ts`
+3. ทดสอบผ่าน Gateway
+4. ลบไฟล์เดิม (เก็บ backup ไว้)
+
+Happy migrating! 🎉
+````
+
+---
+
+## คำสั่งหลังสร้างเสร็จ:
+
+หลังจากสร้างไฟล์ทั้งหมดเรียบร้อย ให้ทำตามขั้นตอนนี้:
+
+1. Install dependencies ใน gateway:
+````bash
+cd server/gateway && npm install
+````
+
+2. Install dependencies ใน content-mcp:
+````bash
+cd server/content-mcp && npm install
+````
+
+3. Install dependencies ใน integration-mcp:
+````bash
+cd server/integration-mcp && npm install
+````
+
+4. ทดสอบรัน 3 servers (เปิด 3 terminals):
+````bash
+# Terminal 1
+cd server/gateway && npm run dev
+
+# Terminal 2
+cd server/content-mcp && npm run dev
+
+# Terminal 3
+cd server/integration-mcp && npm run dev
+````
+
+5. เปิดเบราว์เซอร์ไปที่:
+- http://localhost:3000/api/status
+
+ควรเห็นสถานะของทั้ง 3 services เป็น "online"!
+
+---
+
+โปรดสร้างโครงสร้างและไฟล์ทั้งหมดตามที่ระบุข้างต้น พร้อม install dependencies ให้พร้อมใช้งาน

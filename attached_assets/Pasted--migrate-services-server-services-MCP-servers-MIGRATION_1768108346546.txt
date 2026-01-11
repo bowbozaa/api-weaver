@@ -1,0 +1,55 @@
+ช่วย migrate services จาก server/services/ ไปยัง MCP servers ตาม MIGRATION_GUIDE.md:
+
+## Content MCP Migration
+
+ย้าย services เหล่านี้ไปที่ server/content-mcp/services/:
+
+1. server/services/aiService.ts → server/content-mcp/services/aiService.ts
+2. server/services/cometService.ts → server/content-mcp/services/cometService.ts
+3. server/services/notionService.ts → server/content-mcp/services/notionService.ts
+4. server/services/fileService.ts → server/content-mcp/services/fileService.ts
+5. server/services/commandService.ts → server/content-mcp/services/commandService.ts
+
+## Integration MCP Migration
+
+ย้าย services เหล่านี้ไปที่ server/integration-mcp/services/:
+
+1. server/services/githubService.ts → server/integration-mcp/services/githubService.ts
+2. server/services/vercelService.ts → server/integration-mcp/services/vercelService.ts
+3. server/services/supabaseService.ts → server/integration-mcp/services/supabaseService.ts
+4. server/services/gcloudService.ts → server/integration-mcp/services/gcloudService.ts
+5. server/services/n8nService.ts → server/integration-mcp/services/n8nService.ts
+6. server/services/mcpService.ts → server/integration-mcp/services/mcpService.ts
+
+## Routes Integration
+
+หลังจาก copy services แล้ว:
+
+1. อัพเดท server/content-mcp/routes/index.ts:
+   - Import services ทั้งหมดจาก ../services/
+   - สร้าง routes สำหรับแต่ละ service
+   - ใช้ async/await และ error handling
+
+2. อัพเดท server/integration-mcp/routes/index.ts:
+   - Import services ทั้งหมดจาก ../services/
+   - สร้าง routes สำหรับแต่ละ service
+   - ใช้ async/await และ error handling
+
+3. ตรวจสอบ imports:
+   - แก้ไข import paths ให้ถูกต้อง
+   - เช็คว่าไม่มี dependency ที่หาย
+   - ตรวจสอบ environment variables
+
+## Testing
+
+ทดสอบทุก endpoint ผ่าน Gateway:
+- Content MCP: http://localhost:3000/api/content/*
+- Integration MCP: http://localhost:3000/api/integration/*
+
+## Important
+
+- อย่าลบไฟล์เดิมใน server/services/ ยัง (เก็บเป็น backup)
+- ถ้ามี error ให้แจ้งฉันทันที
+- เริ่มจาก Content MCP ก่อน แล้วค่อยทำ Integration MCP
+
+เริ่มได้เลย!

@@ -1,0 +1,101 @@
+Add multi-service integration endpoints to the existing API Server. Keep all current functionality and add the following:
+
+## New Secrets Required (add to Secrets panel):
+- ANTHROPIC_API_KEY (Claude)
+- OPENAI_API_KEY (GPT)
+- GOOGLE_AI_API_KEY (Gemini)
+- COMET_API_KEY
+- PERPLEXITY_API_KEY
+- N8N_API_KEY
+- N8N_BASE_URL
+- GITHUB_TOKEN
+- VERCEL_TOKEN
+- SUPABASE_URL
+- SUPABASE_ANON_KEY
+- NOTION_API_KEY
+- GOOGLE_CLOUD_PROJECT_ID
+- GOOGLE_CLOUD_CREDENTIALS (JSON string)
+
+## New API Endpoints to Create:
+
+### 1. AI Services - /api/ai/*
+POST /api/ai/claude - Send prompt to Claude (Anthropic)
+POST /api/ai/gpt - Send prompt to GPT (OpenAI)
+POST /api/ai/gemini - Send prompt to Google Gemini
+POST /api/ai/perplexity - Search with Perplexity
+POST /api/ai/compare - Send same prompt to all AIs and compare responses
+
+Request body for AI endpoints:
+{
+  "prompt": "string",
+  "model": "string (optional)",
+  "maxTokens": number (optional)
+}
+
+### 2. GitHub - /api/github/*
+GET /api/github/repos - List user repositories
+GET /api/github/repos/:owner/:repo - Get repository details
+GET /api/github/repos/:owner/:repo/contents/:path - Get file content
+POST /api/github/repos/:owner/:repo/contents/:path - Create/update file
+DELETE /api/github/repos/:owner/:repo/contents/:path - Delete file
+GET /api/github/repos/:owner/:repo/issues - List issues
+POST /api/github/repos/:owner/:repo/issues - Create issue
+
+### 3. Supabase - /api/supabase/*
+GET /api/supabase/tables - List all tables
+GET /api/supabase/query - Execute select query (query params: table, select, filter)
+POST /api/supabase/insert - Insert data (body: {table, data})
+PUT /api/supabase/update - Update data (body: {table, data, match})
+DELETE /api/supabase/delete - Delete data (body: {table, match})
+
+### 4. Notion - /api/notion/*
+GET /api/notion/pages - List pages
+GET /api/notion/pages/:id - Get page content
+POST /api/notion/pages - Create new page
+PATCH /api/notion/pages/:id - Update page
+GET /api/notion/databases/:id/query - Query database
+POST /api/notion/search - Search Notion
+
+### 5. Vercel - /api/vercel/*
+GET /api/vercel/projects - List projects
+GET /api/vercel/deployments - List deployments
+POST /api/vercel/deployments - Trigger new deployment
+GET /api/vercel/deployments/:id - Get deployment status
+DELETE /api/vercel/deployments/:id - Cancel deployment
+
+### 6. n8n - /api/n8n/*
+GET /api/n8n/workflows - List workflows
+GET /api/n8n/workflows/:id - Get workflow details
+POST /api/n8n/workflows/:id/execute - Execute workflow
+GET /api/n8n/executions - List executions
+
+### 7. Google Cloud - /api/gcloud/*
+GET /api/gcloud/projects - List projects
+GET /api/gcloud/compute/instances - List compute instances
+POST /api/gcloud/compute/instances - Create instance
+DELETE /api/gcloud/compute/instances/:name - Delete instance
+GET /api/gcloud/storage/buckets - List storage buckets
+
+### 8. Comet ML - /api/comet/*
+GET /api/comet/projects - List projects
+GET /api/comet/experiments - List experiments
+GET /api/comet/experiments/:id/metrics - Get experiment metrics
+
+## Technical Requirements:
+- Keep existing authentication with X-API-KEY header
+- Add error handling for missing service API keys (return helpful message)
+- Add rate limiting per service
+- Update the dashboard to show all new endpoints
+- Update API docs (/docs) with all new endpoints
+- Add health check for each service: GET /api/health/:service
+- Log all requests to each service
+
+## Dashboard Updates:
+- Add tabs for each service category (AI, GitHub, Database, etc.)
+- Show connection status for each service (connected/not configured)
+- Add quick test buttons for each endpoint
+
+## Security:
+- Never expose API keys in responses
+- Validate all inputs
+- Add request timeout for external API calls (30 seconds)
