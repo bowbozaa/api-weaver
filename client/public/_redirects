@@ -1,0 +1,6 @@
+/api/* https://api-weaver--banknakorn39.replit.app/api/:splat 200
+/docs https://api-weaver--banknakorn39.replit.app/docs 200
+/docs/* https://api-weaver--banknakorn39.replit.app/docs/:splat 200
+/mcp https://api-weaver--banknakorn39.replit.app/mcp 200
+/mcp/* https://api-weaver--banknakorn39.replit.app/mcp/:splat 200
+/* /index.html 200
