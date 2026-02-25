@@ -2,7 +2,6 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import rateLimit from "express-rate-limit";
 import cors from "cors";
-import swaggerUi from "swagger-ui-express";
 import { z } from "zod";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { storage } from "./storage";
@@ -29,6 +28,19 @@ import {
   notifyServerError,
   clearNotificationHistory,
 } from "./services/notificationService";
+import { getAuditLogs, getSecuritySummary } from "./services/auditService";
+import { getApiKeyStatus, getSecurityRecommendations, generateSecureApiKey } from "./services/apiKeyRotationService";
+import { getCacheStats, clearCache } from "./services/cacheService";
+import { getQueueStatus, getQueueHistory } from "./services/requestQueueService";
+import { getAllTiers, getCurrentTierStatus } from "./services/tieredRateLimitService";
+import { listWebhooks, registerWebhook, deleteWebhook, getSupportedEvents, getWebhookLogs } from "./services/webhookService";
+import { getAnalytics, getEndpointStats, getTopEndpoints, getErrorAnalytics } from "./services/analyticsService";
+import { listTeams, createTeam, getTeam, deleteTeam, addMember, removeMember } from "./services/teamService";
+import { getVersions, getCurrentVersion, getVersionInfo, getDeprecatedEndpoints } from "./services/apiVersioningService";
+import { getSupportedLanguages, generateSDK } from "./services/sdkGeneratorService";
+import { getAvailableEndpoints, getSampleRequests, executePlaygroundRequest } from "./services/playgroundService";
+import { getSystemStatus, getServiceStatuses, getIncidents, createIncident, updateIncident, getUptimeHistory } from "./services/statusPageService";
+import { getAvailableAgents, startA2AChat, startA2AChatStream, getSession, getAllSessions, deleteSession, clearAllSessions } from "./services/agentOrchestrator";
 
 const CONTENT_MCP_URL = `http://${process.env.CONTENT_MCP_HOST || 'localhost'}:${process.env.CONTENT_MCP_PORT || 3001}`;
 const INTEGRATION_MCP_URL = `http://${process.env.INTEGRATION_MCP_HOST || 'localhost'}:${process.env.INTEGRATION_MCP_PORT || 3002}`;
@@ -37,21 +49,44 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // CORS configuration
+  // CORS configuration - restrict in production, allow in development
+  const allowedOrigins = process.env.NODE_ENV === "production"
+    ? [
+        /\.replit\.dev$/,
+        /\.replit\.app$/,
+        /\.replit\.com$/,
+      ]
+    : true;
+  
   app.use(cors({
-    origin: "*",
+    origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "X-API-KEY", "Authorization"],
-    credentials: true,
+    credentials: process.env.NODE_ENV !== "production",
   }));
 
-  // Rate limiting
+  // Rate limiting with audit logging
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // 100 requests per window
     message: { error: "Too many requests", message: "Please try again later" },
     standardHeaders: true,
     legacyHeaders: false,
+    handler: (req, res) => {
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      notifyRateLimitExceeded(ip, req.path);
+      import("./services/auditService").then(({ logAuditEvent }) => {
+        logAuditEvent({
+          eventType: "api.rate_limited",
+          severity: "warning",
+          ip,
+          userAgent: req.get("User-Agent"),
+          path: req.path,
+          method: req.method,
+        });
+      });
+      res.status(429).json({ error: "Too many requests", message: "Please try again later" });
+    },
   });
 
   // Apply rate limiting to API routes
@@ -64,13 +99,44 @@ export async function registerRoutes(
   // API Key authentication
   app.use(apiKeyAuth);
 
-  // Swagger documentation
-  app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-    customCss: '.swagger-ui .topbar { display: none }',
-    customSiteTitle: "API Server Documentation",
-  }));
+  // Swagger documentation - serve custom HTML with CDN assets to avoid Vite middleware conflicts
+  app.get("/docs", (req: Request, res: Response) => {
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>API Weaver Documentation</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.31.0/swagger-ui.css" />
+  <style>
+    html { box-sizing: border-box; overflow-y: scroll; }
+    *, *:before, *:after { box-sizing: inherit; }
+    body { margin: 0; background: #fafafa; }
+    .swagger-ui .topbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.31.0/swagger-ui-bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.31.0/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.onload = function() {
+      SwaggerUIBundle({
+        url: '/api-docs-spec',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+        layout: "StandaloneLayout"
+      });
+    };
+  </script>
+</body>
+</html>`;
+    res.set("Content-Type", "text/html");
+    res.send(html);
+  });
 
-  app.get("/api-docs", (req: Request, res: Response) => {
+  app.get("/api-docs-spec", (req: Request, res: Response) => {
     res.json(swaggerSpec);
   });
 
@@ -565,6 +631,26 @@ export async function registerRoutes(
     res.json(stats);
   });
 
+  /**
+   * @swagger
+   * /api/ws/status:
+   *   get:
+   *     summary: Get WebSocket connection status
+   *     tags: [Monitoring]
+   *     security: []
+   *     responses:
+   *       200:
+   *         description: WebSocket status
+   */
+  app.get("/api/ws/status", async (req: Request, res: Response) => {
+    const { getConnectedClientsCount } = await import("./services/websocketService");
+    res.json({
+      enabled: true,
+      path: "/ws",
+      connectedClients: getConnectedClientsCount(),
+    });
+  });
+
   // Logs endpoint (public)
   /**
    * @swagger
@@ -668,6 +754,938 @@ export async function registerRoutes(
   app.delete("/api/notifications", (req: Request, res: Response) => {
     clearNotificationHistory();
     res.json({ message: "Notification history cleared" });
+  });
+
+  /**
+   * @swagger
+   * /api/audit/logs:
+   *   get:
+   *     summary: Get audit logs
+   *     tags: [Security]
+   *     security: []
+   *     parameters:
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 100
+   *         description: Maximum number of logs to return
+   *       - in: query
+   *         name: eventType
+   *         schema:
+   *           type: string
+   *         description: Filter by event type
+   *     responses:
+   *       200:
+   *         description: List of audit logs
+   */
+  app.get("/api/audit/logs", async (req: Request, res: Response) => {
+    const limit = parseInt(req.query.limit as string) || 100;
+    const eventType = req.query.eventType as string | undefined;
+    const logs = await getAuditLogs(limit, eventType as any);
+    res.json(logs);
+  });
+
+  /**
+   * @swagger
+   * /api/audit/summary:
+   *   get:
+   *     summary: Get security audit summary
+   *     tags: [Security]
+   *     security: []
+   *     responses:
+   *       200:
+   *         description: Security summary with event counts
+   */
+  app.get("/api/audit/summary", async (req: Request, res: Response) => {
+    const summary = await getSecuritySummary();
+    res.json(summary);
+  });
+
+  /**
+   * @swagger
+   * /api/security/status:
+   *   get:
+   *     summary: Get overall security status
+   *     tags: [Security]
+   *     security: []
+   *     responses:
+   *       200:
+   *         description: Security status with recommendations
+   */
+  app.get("/api/security/status", async (req: Request, res: Response) => {
+    const apiKeyStatus = getApiKeyStatus();
+    const auditSummary = await getSecuritySummary();
+    const recommendations = getSecurityRecommendations();
+    
+    const isProduction = process.env.NODE_ENV === "production";
+    
+    res.json({
+      apiKey: apiKeyStatus,
+      audit: auditSummary,
+      recommendations,
+      environment: {
+        nodeEnv: process.env.NODE_ENV || "development",
+        isProduction,
+      },
+      securityHeaders: {
+        csp: true,
+        cspStrict: isProduction,
+        hsts: isProduction,
+        xFrameOptions: true,
+        xContentTypeOptions: true,
+        referrerPolicy: true,
+        permissionsPolicy: true,
+      },
+      protections: {
+        csrfProtection: true,
+        csrfStrict: isProduction,
+        rateLimiting: true,
+        rateLimitWindow: "15 minutes",
+        rateLimitMax: 100,
+        inputValidation: true,
+        pathSanitization: true,
+        commandWhitelist: true,
+      },
+      cors: {
+        restrictedOrigins: isProduction,
+        credentials: !isProduction,
+      },
+    });
+  });
+
+  /**
+   * @swagger
+   * /api/security/generate-key:
+   *   get:
+   *     summary: Generate a new secure API key suggestion
+   *     tags: [Security]
+   *     security: []
+   *     responses:
+   *       200:
+   *         description: A new secure API key
+   */
+  app.get("/api/security/generate-key", (req: Request, res: Response) => {
+    const newKey = generateSecureApiKey();
+    res.json({
+      suggestedKey: newKey,
+      note: "This is a suggested key. Update your API_KEY environment variable with this value.",
+    });
+  });
+
+  /**
+   * @swagger
+   * /api/security/events:
+   *   get:
+   *     summary: Get security events
+   *     tags: [Monitoring]
+   *     security: []
+   *     parameters:
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 50
+   *         description: Maximum number of events to return
+   *     responses:
+   *       200:
+   *         description: List of security events
+   */
+  app.get("/api/security/events", async (req: Request, res: Response) => {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const summary = await getSecuritySummary();
+    res.json(summary.recentSecurityEvents);
+  });
+
+  // ============================================
+  // 2FA (Two-Factor Authentication) Endpoints
+  // ============================================
+
+  /**
+   * @swagger
+   * /api/2fa/setup:
+   *   post:
+   *     summary: Setup 2FA for a user
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               userId:
+   *                 type: string
+   *               email:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: 2FA setup information including QR code
+   */
+  app.post("/api/2fa/setup", async (req: Request, res: Response) => {
+    try {
+      const { userId, email } = req.body;
+      if (!userId || !email) {
+        return res.status(400).json({ error: "userId and email are required" });
+      }
+      const { setup2FA } = await import("./services/twoFactorService");
+      const result = await setup2FA(userId, email);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/2fa/verify:
+   *   post:
+   *     summary: Verify 2FA token and enable 2FA
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               userId:
+   *                 type: string
+   *               token:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: Verification result
+   */
+  app.post("/api/2fa/verify", async (req: Request, res: Response) => {
+    try {
+      const { userId, token } = req.body;
+      if (!userId || !token) {
+        return res.status(400).json({ error: "userId and token are required" });
+      }
+      const { verify2FA } = await import("./services/twoFactorService");
+      const isValid = await verify2FA(userId, token);
+      res.json({ valid: isValid, message: isValid ? "2FA enabled successfully" : "Invalid token" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/2fa/status/{userId}:
+   *   get:
+   *     summary: Get 2FA status for a user
+   *     tags: [Security]
+   *     parameters:
+   *       - in: path
+   *         name: userId
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: 2FA status
+   */
+  app.get("/api/2fa/status/:userId", async (req: Request, res: Response) => {
+    try {
+      const { get2FAStatus } = await import("./services/twoFactorService");
+      const status = await get2FAStatus(req.params.userId);
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/2fa/disable:
+   *   post:
+   *     summary: Disable 2FA for a user
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               userId:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: 2FA disabled
+   */
+  app.post("/api/2fa/disable", async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      const { disable2FA } = await import("./services/twoFactorService");
+      const success = await disable2FA(userId);
+      res.json({ success, message: success ? "2FA disabled" : "2FA not found for user" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/2fa/backup-codes:
+   *   post:
+   *     summary: Regenerate backup codes
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               userId:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: New backup codes
+   */
+  app.post("/api/2fa/backup-codes", async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      const { regenerateBackupCodes } = await import("./services/twoFactorService");
+      const codes = await regenerateBackupCodes(userId);
+      res.json({ backupCodes: codes });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // IP Whitelist Endpoints
+  // ============================================
+
+  /**
+   * @swagger
+   * /api/ip-whitelist:
+   *   get:
+   *     summary: Get all whitelisted IPs
+   *     tags: [Security]
+   *     responses:
+   *       200:
+   *         description: List of whitelisted IPs
+   */
+  app.get("/api/ip-whitelist", async (req: Request, res: Response) => {
+    try {
+      const { getAllWhitelistedIPs, isWhitelistEnabled } = await import("./services/ipWhitelistService");
+      const ips = await getAllWhitelistedIPs();
+      const enabled = await isWhitelistEnabled();
+      res.json({ enabled, entries: ips });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/ip-whitelist:
+   *   post:
+   *     summary: Add IP to whitelist
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               ip:
+   *                 type: string
+   *               description:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: IP added
+   */
+  app.post("/api/ip-whitelist", async (req: Request, res: Response) => {
+    try {
+      const { ip, description } = req.body;
+      if (!ip) {
+        return res.status(400).json({ error: "IP address is required" });
+      }
+      const userId = (req as any).user?.claims?.sub;
+      const { addIPToWhitelist } = await import("./services/ipWhitelistService");
+      const entry = await addIPToWhitelist(ip, description, userId);
+      res.json(entry);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/ip-whitelist/{id}:
+   *   delete:
+   *     summary: Remove IP from whitelist
+   *     tags: [Security]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: IP removed
+   */
+  app.delete("/api/ip-whitelist/:id", async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.claims?.sub;
+      const { removeIPFromWhitelist } = await import("./services/ipWhitelistService");
+      const success = await removeIPFromWhitelist(req.params.id, userId);
+      res.json({ success });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Request Signing Endpoints
+  // ============================================
+
+  /**
+   * @swagger
+   * /api/request-signing/status:
+   *   get:
+   *     summary: Get request signing status and configuration
+   *     tags: [Security]
+   *     responses:
+   *       200:
+   *         description: Request signing status
+   */
+  app.get("/api/request-signing/status", async (req: Request, res: Response) => {
+    try {
+      const { isSigningEnabled, getSignatureHeaders } = await import("./services/requestSigningService");
+      res.json({
+        enabled: isSigningEnabled(),
+        headers: getSignatureHeaders(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/request-signing/example:
+   *   post:
+   *     summary: Generate example request signing code
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               method:
+   *                 type: string
+   *               path:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: Example code
+   */
+  app.post("/api/request-signing/example", async (req: Request, res: Response) => {
+    try {
+      const { method = "POST", path = "/api/example" } = req.body;
+      const { generateClientSigningExample } = await import("./services/requestSigningService");
+      const example = generateClientSigningExample(method, path);
+      res.json({ example });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Encrypted Audit Logs Endpoints
+  // ============================================
+
+  /**
+   * @swagger
+   * /api/audit/encrypted:
+   *   get:
+   *     summary: Get decrypted audit logs
+   *     tags: [Monitoring]
+   *     parameters:
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 100
+   *       - in: query
+   *         name: severity
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Decrypted audit logs
+   */
+  app.get("/api/audit/encrypted", async (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const severity = req.query.severity as string;
+      const { getDecryptedAuditLogs, getDecryptedAuditLogsBySeverity } = await import("./services/encryptedAuditService");
+      
+      const logs = severity 
+        ? await getDecryptedAuditLogsBySeverity(severity, limit)
+        : await getDecryptedAuditLogs(limit);
+      
+      res.json({ logs });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/audit/encryption-status:
+   *   get:
+   *     summary: Get audit log encryption status
+   *     tags: [Monitoring]
+   *     responses:
+   *       200:
+   *         description: Encryption status
+   */
+  app.get("/api/audit/encryption-status", async (req: Request, res: Response) => {
+    try {
+      const { getEncryptionStatus } = await import("./services/encryptedAuditService");
+      res.json(getEncryptionStatus());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Auto API Key Rotation Endpoints
+  // ============================================
+
+  /**
+   * @swagger
+   * /api/key-rotation/status:
+   *   get:
+   *     summary: Get API key rotation status
+   *     tags: [Security]
+   *     responses:
+   *       200:
+   *         description: Rotation status
+   */
+  app.get("/api/key-rotation/status", async (req: Request, res: Response) => {
+    try {
+      const { getRotationStatus, getNextRotationDate } = await import("./services/autoKeyRotationService");
+      const status = getRotationStatus();
+      const nextRotation = await getNextRotationDate();
+      res.json({ ...status, nextRotation });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/key-rotation/history:
+   *   get:
+   *     summary: Get API key rotation history
+   *     tags: [Security]
+   *     responses:
+   *       200:
+   *         description: Rotation history
+   */
+  app.get("/api/key-rotation/history", async (req: Request, res: Response) => {
+    try {
+      const { getRotationHistory } = await import("./services/autoKeyRotationService");
+      const history = await getRotationHistory();
+      res.json({ history });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/key-rotation/rotate:
+   *   post:
+   *     summary: Manually rotate API key
+   *     tags: [Security]
+   *     responses:
+   *       200:
+   *         description: New API key generated
+   */
+  app.post("/api/key-rotation/rotate", async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.claims?.sub;
+      const { rotateAPIKey } = await import("./services/autoKeyRotationService");
+      const result = await rotateAPIKey(userId);
+      res.json({ 
+        message: "API key rotated successfully",
+        newKey: result.newKey,
+        expiresAt: result.expiresAt,
+        note: "Update your API_KEY environment variable with this new key"
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/key-rotation/interval:
+   *   post:
+   *     summary: Set rotation interval
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               days:
+   *                 type: integer
+   *                 minimum: 7
+   *                 maximum: 365
+   *     responses:
+   *       200:
+   *         description: Interval updated
+   */
+  app.post("/api/key-rotation/interval", async (req: Request, res: Response) => {
+    try {
+      const { days } = req.body;
+      if (!days || days < 7 || days > 365) {
+        return res.status(400).json({ error: "Days must be between 7 and 365" });
+      }
+      const { setRotationInterval, getRotationStatus } = await import("./services/autoKeyRotationService");
+      setRotationInterval(days);
+      res.json({ message: `Rotation interval set to ${days} days`, status: getRotationStatus() });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Security Alerts Endpoints
+  // ============================================
+
+  /**
+   * @swagger
+   * /api/security-alerts:
+   *   get:
+   *     summary: Get configured security alerts
+   *     tags: [Security]
+   *     responses:
+   *       200:
+   *         description: List of alerts
+   */
+  app.get("/api/security-alerts", async (req: Request, res: Response) => {
+    try {
+      const { getConfiguredAlerts } = await import("./services/securityAlertService");
+      const alerts = await getConfiguredAlerts();
+      res.json({ alerts });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/security-alerts:
+   *   post:
+   *     summary: Configure a new security alert
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               alertType:
+   *                 type: string
+   *                 enum: [critical, error, warning, all]
+   *               channel:
+   *                 type: string
+   *                 enum: [email, sms, webhook, slack]
+   *               destination:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: Alert configured
+   */
+  app.post("/api/security-alerts", async (req: Request, res: Response) => {
+    try {
+      const { alertType, channel, destination } = req.body;
+      if (!alertType || !channel || !destination) {
+        return res.status(400).json({ error: "alertType, channel, and destination are required" });
+      }
+      const userId = (req as any).user?.claims?.sub;
+      const { configureAlert } = await import("./services/securityAlertService");
+      const alert = await configureAlert({ userId, alertType, channel, destination });
+      res.json(alert);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/security-alerts/{id}:
+   *   delete:
+   *     summary: Remove a security alert
+   *     tags: [Security]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Alert removed
+   */
+  app.delete("/api/security-alerts/:id", async (req: Request, res: Response) => {
+    try {
+      const { removeAlert } = await import("./services/securityAlertService");
+      const success = await removeAlert(req.params.id);
+      res.json({ success });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/security-alerts/{id}/test:
+   *   post:
+   *     summary: Test a security alert
+   *     tags: [Security]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Test sent
+   */
+  app.post("/api/security-alerts/:id/test", async (req: Request, res: Response) => {
+    try {
+      const { testAlert } = await import("./services/securityAlertService");
+      const success = await testAlert(req.params.id);
+      res.json({ success, message: success ? "Test alert sent" : "Alert not found" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/security-alerts/history:
+   *   get:
+   *     summary: Get alert history
+   *     tags: [Security]
+   *     parameters:
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 50
+   *     responses:
+   *       200:
+   *         description: Alert history
+   */
+  app.get("/api/security-alerts/history", async (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const { getAlertHistory } = await import("./services/securityAlertService");
+      const history = await getAlertHistory(limit);
+      res.json({ history });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/email/status:
+   *   get:
+   *     summary: Check email service status
+   *     tags: [Security]
+   *     responses:
+   *       200:
+   *         description: Email service status
+   */
+  app.get("/api/email/status", async (req: Request, res: Response) => {
+    try {
+      const { isResendConfigured } = await import("./services/resendService");
+      const configured = await isResendConfigured();
+      res.json({ 
+        configured, 
+        service: "Resend",
+        message: configured ? "Email service is configured and ready" : "Email service not configured"
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message, configured: false });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/email/test:
+   *   post:
+   *     summary: Send a test email
+   *     tags: [Security]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               to:
+   *                 type: string
+   *               subject:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: Test email sent
+   */
+  app.post("/api/email/test", async (req: Request, res: Response) => {
+    try {
+      const { to, subject } = req.body;
+      if (!to) {
+        return res.status(400).json({ error: "Recipient email (to) is required" });
+      }
+      const { sendSecurityAlertEmail } = await import("./services/resendService");
+      const result = await sendSecurityAlertEmail(
+        to,
+        "info",
+        "test_email",
+        subject || "This is a test email from API Weaver to verify your email notification setup.",
+        { testTime: new Date().toISOString(), sentBy: (req as any).user?.claims?.sub || "anonymous" }
+      );
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message, success: false });
+    }
+  });
+
+  // Session Management
+  /**
+   * @swagger
+   * /api/sessions:
+   *   get:
+   *     summary: Get all active sessions for the current user
+   *     tags: [Sessions]
+   *     responses:
+   *       200:
+   *         description: List of active sessions
+   *       401:
+   *         description: Unauthorized
+   */
+  app.get("/api/sessions", async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.claims?.sub) {
+        return res.status(401).json({ error: "Unauthorized", message: "Not authenticated" });
+      }
+
+      const currentSessionId = (req as any).sessionID;
+      const { getUserSessions } = await import("./services/sessionService");
+      const sessions = await getUserSessions(user.claims.sub, currentSessionId);
+      
+      res.json({ sessions });
+    } catch (error: any) {
+      res.status(500).json({ error: "Server Error", message: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/sessions/{sid}:
+   *   delete:
+   *     summary: Revoke a specific session
+   *     tags: [Sessions]
+   *     parameters:
+   *       - in: path
+   *         name: sid
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Session revoked successfully
+   *       401:
+   *         description: Unauthorized
+   *       404:
+   *         description: Session not found
+   */
+  app.delete("/api/sessions/:sid", async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.claims?.sub) {
+        return res.status(401).json({ error: "Unauthorized", message: "Not authenticated" });
+      }
+
+      const { sid } = req.params;
+      const currentSessionId = (req as any).sessionID;
+      
+      if (sid === currentSessionId) {
+        return res.status(400).json({ error: "Bad Request", message: "Cannot revoke current session. Use logout instead." });
+      }
+
+      const { deleteSession } = await import("./services/sessionService");
+      const success = await deleteSession(sid, user.claims.sub);
+      
+      if (success) {
+        res.json({ success: true, message: "Session revoked" });
+      } else {
+        res.status(404).json({ error: "Not Found", message: "Session not found" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: "Server Error", message: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/sessions/revoke-all:
+   *   post:
+   *     summary: Revoke all other sessions except current
+   *     tags: [Sessions]
+   *     responses:
+   *       200:
+   *         description: All other sessions revoked
+   *       401:
+   *         description: Unauthorized
+   */
+  app.post("/api/sessions/revoke-all", async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.claims?.sub) {
+        return res.status(401).json({ error: "Unauthorized", message: "Not authenticated" });
+      }
+
+      const currentSessionId = (req as any).sessionID;
+      const { deleteAllOtherSessions } = await import("./services/sessionService");
+      const count = await deleteAllOtherSessions(user.claims.sub, currentSessionId);
+      
+      res.json({ success: true, message: `Revoked ${count} session(s)`, revokedCount: count });
+    } catch (error: any) {
+      res.status(500).json({ error: "Server Error", message: error.message });
+    }
   });
 
   // File operations
@@ -1011,6 +2029,511 @@ export async function registerRoutes(
         id: req.body?.id || null,
         error: { code: -32000, message: error.message },
       });
+    }
+  });
+
+  // ============================================
+  // Cache Routes
+  // ============================================
+  app.get("/api/cache/stats", (req: Request, res: Response) => {
+    try {
+      const stats = getCacheStats();
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/cache/clear", (req: Request, res: Response) => {
+    try {
+      const apiKey = req.headers["x-api-key"];
+      if (!apiKey) {
+        return res.status(401).json({ error: "X-API-KEY header required" });
+      }
+      clearCache();
+      res.json({ message: "Cache cleared" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Request Queue Routes
+  // ============================================
+  app.get("/api/queue/status", (req: Request, res: Response) => {
+    try {
+      const status = getQueueStatus();
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/queue/history", (req: Request, res: Response) => {
+    try {
+      const history = getQueueHistory();
+      res.json(history);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Tiered Rate Limit Routes
+  // ============================================
+  app.get("/api/rate-tiers", (req: Request, res: Response) => {
+    try {
+      const tiers = getAllTiers();
+      res.json(tiers);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/rate-tiers/status", (req: Request, res: Response) => {
+    try {
+      const userId = (req.query.userId as string) || "anonymous";
+      const status = getCurrentTierStatus(userId);
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Webhook Routes
+  // ============================================
+  app.get("/api/webhooks/events", (req: Request, res: Response) => {
+    try {
+      const events = getSupportedEvents();
+      res.json(events);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/webhooks/logs", (req: Request, res: Response) => {
+    try {
+      const logs = getWebhookLogs();
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/webhooks", (req: Request, res: Response) => {
+    try {
+      const webhooks = listWebhooks();
+      res.json(webhooks);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/webhooks", (req: Request, res: Response) => {
+    try {
+      const { url, events, secret } = req.body;
+      const webhook = registerWebhook(url, events, secret);
+      res.json(webhook);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/webhooks/:id", (req: Request, res: Response) => {
+    try {
+      const deleted = deleteWebhook(req.params.id);
+      res.json({ success: deleted });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Analytics Routes
+  // ============================================
+  app.get("/api/analytics", (req: Request, res: Response) => {
+    try {
+      const range = (req.query.range as string) || "24h";
+      const analytics = getAnalytics(range as any);
+      res.json(analytics);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/analytics/endpoints", (req: Request, res: Response) => {
+    try {
+      const stats = getEndpointStats();
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/analytics/top", (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 10;
+      const top = getTopEndpoints(limit);
+      res.json(top);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/analytics/errors", (req: Request, res: Response) => {
+    try {
+      const errors = getErrorAnalytics();
+      res.json(errors);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Team Routes
+  // ============================================
+  app.get("/api/teams", (req: Request, res: Response) => {
+    try {
+      const teams = listTeams();
+      res.json(teams);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/teams", (req: Request, res: Response) => {
+    try {
+      const { name, ownerId } = req.body;
+      const team = createTeam(name, ownerId);
+      res.json(team);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/teams/:id", (req: Request, res: Response) => {
+    try {
+      const team = getTeam(req.params.id);
+      res.json(team);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/teams/:id", (req: Request, res: Response) => {
+    try {
+      const deleted = deleteTeam(req.params.id);
+      res.json({ success: deleted });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/teams/:id/members", (req: Request, res: Response) => {
+    try {
+      const { userId, role } = req.body;
+      const member = addMember(req.params.id, userId, role);
+      res.json(member);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/teams/:id/members/:userId", (req: Request, res: Response) => {
+    try {
+      const removed = removeMember(req.params.id, req.params.userId);
+      res.json({ success: removed });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // API Versioning Routes
+  // ============================================
+  app.get("/api/versions", (req: Request, res: Response) => {
+    try {
+      const versions = getVersions();
+      res.json(versions);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/versions/current", (req: Request, res: Response) => {
+    try {
+      const current = getCurrentVersion();
+      res.json(current);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/versions/:version/deprecated", (req: Request, res: Response) => {
+    try {
+      const deprecated = getDeprecatedEndpoints();
+      res.json(deprecated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/versions/:version", (req: Request, res: Response) => {
+    try {
+      const info = getVersionInfo(req.params.version);
+      res.json(info);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // SDK Generator Routes
+  // ============================================
+  app.get("/api/sdk/languages", (req: Request, res: Response) => {
+    try {
+      const languages = getSupportedLanguages();
+      res.json(languages);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/sdk/generate", (req: Request, res: Response) => {
+    try {
+      const { language } = req.body;
+      const sdk = generateSDK(language, swaggerSpec as Record<string, unknown>);
+      res.json({ language, code: sdk, generatedAt: new Date().toISOString() });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Playground Routes
+  // ============================================
+  app.get("/api/playground/endpoints", (req: Request, res: Response) => {
+    try {
+      const endpoints = getAvailableEndpoints();
+      res.json(endpoints);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/playground/samples", (req: Request, res: Response) => {
+    try {
+      const samples = getSampleRequests();
+      res.json(samples);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/playground/execute", async (req: Request, res: Response) => {
+    try {
+      const { method, url, headers, body } = req.body;
+      const result = await executePlaygroundRequest({ method, path: url, headers, body });
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // Status Page Routes
+  // ============================================
+  app.get("/api/status", (req: Request, res: Response) => {
+    try {
+      const status = getSystemStatus();
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/status/services", (req: Request, res: Response) => {
+    try {
+      const services = getServiceStatuses();
+      res.json(services);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/status/incidents", (req: Request, res: Response) => {
+    try {
+      const incidents = getIncidents();
+      res.json(incidents);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/status/incidents", (req: Request, res: Response) => {
+    try {
+      const { title, description, severity } = req.body;
+      const incident = createIncident(title, description, severity);
+      res.json(incident);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/status/incidents/:id", (req: Request, res: Response) => {
+    try {
+      const { status } = req.body;
+      const incident = updateIncident(req.params.id, status);
+      res.json(incident);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/status/uptime", (req: Request, res: Response) => {
+    try {
+      const uptime = getUptimeHistory();
+      res.json(uptime);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // A2A (Agent-to-Agent) Routes
+  // ============================================
+
+  app.get("/api/a2a/agents", (req: Request, res: Response) => {
+    try {
+      const agents = getAvailableAgents();
+      res.json(agents);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/a2a/chat/stream", async (req: Request, res: Response) => {
+    try {
+      const { topic, mode, agents, maxRounds, maxTokensPerAgent } = req.body;
+
+      if (!topic || typeof topic !== "string" || topic.trim().length === 0) {
+        return res.status(400).json({ error: "Topic is required" });
+      }
+      if (!mode || !["chain", "debate", "consensus", "sub-agent"].includes(mode)) {
+        return res.status(400).json({ error: "Invalid mode. Use: chain, debate, consensus, or sub-agent" });
+      }
+      if (!agents || !Array.isArray(agents) || agents.length < 2) {
+        return res.status(400).json({ error: "At least 2 agents are required" });
+      }
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+
+      let clientDisconnected = false;
+      req.on("close", () => {
+        clientDisconnected = true;
+      });
+
+      await startA2AChatStream(
+        {
+          topic: topic.trim(),
+          mode,
+          agents,
+          maxRounds: maxRounds || undefined,
+          maxTokensPerAgent: maxTokensPerAgent || undefined,
+        },
+        (event) => {
+          if (!clientDisconnected) {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+          }
+        }
+      );
+
+      if (!clientDisconnected) {
+        res.write(`data: [DONE]\n\n`);
+        res.end();
+      }
+    } catch (error: any) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ type: 'error', data: { message: error.message } })}\n\n`);
+        res.write(`data: [DONE]\n\n`);
+        res.end();
+      }
+    }
+  });
+
+  app.post("/api/a2a/chat", async (req: Request, res: Response) => {
+    try {
+      const { topic, mode, agents, maxRounds, maxTokensPerAgent } = req.body;
+
+      if (!topic || typeof topic !== "string" || topic.trim().length === 0) {
+        return res.status(400).json({ error: "Topic is required" });
+      }
+      if (!mode || !["chain", "debate", "consensus", "sub-agent"].includes(mode)) {
+        return res.status(400).json({ error: "Invalid mode. Use: chain, debate, consensus, or sub-agent" });
+      }
+      if (!agents || !Array.isArray(agents) || agents.length < 2) {
+        return res.status(400).json({ error: "At least 2 agents are required" });
+      }
+
+      const session = await startA2AChat({
+        topic: topic.trim(),
+        mode,
+        agents,
+        maxRounds: maxRounds || undefined,
+        maxTokensPerAgent: maxTokensPerAgent || undefined,
+      });
+
+      res.json(session);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/a2a/sessions", (req: Request, res: Response) => {
+    try {
+      const sessions = getAllSessions();
+      res.json(sessions);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/a2a/sessions/:id", (req: Request, res: Response) => {
+    try {
+      const session = getSession(req.params.id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json(session);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/a2a/sessions/:id", (req: Request, res: Response) => {
+    try {
+      const deleted = deleteSession(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json({ message: "Session deleted" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/a2a/sessions", (req: Request, res: Response) => {
+    try {
+      const count = clearAllSessions();
+      res.json({ message: `Cleared ${count} sessions`, count });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

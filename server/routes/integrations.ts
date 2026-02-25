@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 
 import { callClaude, callGPT, callGemini, callPerplexity, compareAllAIs } from "../services/aiService";
+import { processCodeAssistant, getAvailableActions, type CodeAction } from "../services/codeAssistantService";
 import * as github from "../services/githubService";
 import { pushToGitHub, getAuthenticatedUser, createRepo, getRepoInfo } from "../services/githubExportService";
 import * as supabase from "../services/supabaseService";
@@ -15,6 +16,15 @@ import { getServiceHealth, getAllServicesHealth } from "../services/healthServic
 const aiPromptSchema = z.object({
   prompt: z.string().min(1),
   model: z.string().optional(),
+  maxTokens: z.number().min(1).max(8000).optional(),
+});
+
+const codeAssistantSchema = z.object({
+  action: z.enum(["analyze", "improve", "explain", "generate", "refactor", "debug", "review"]),
+  code: z.string().optional(),
+  language: z.string().optional(),
+  prompt: z.string().optional(),
+  context: z.string().optional(),
   maxTokens: z.number().min(1).max(8000).optional(),
 });
 
@@ -82,6 +92,111 @@ export function registerIntegrationRoutes(app: Express): void {
     } catch (error: any) {
       res.status(400).json({ error: "AI Error", message: error.message });
     }
+  });
+
+  // ==================== CODE ASSISTANT ====================
+
+  /**
+   * @swagger
+   * /api/ai/code-assistant:
+   *   post:
+   *     summary: AI-powered code assistant
+   *     description: Analyze, improve, explain, generate, refactor, debug, or review code using Claude AI
+   *     tags: [AI Services]
+   *     security:
+   *       - ApiKeyAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [action]
+   *             properties:
+   *               action:
+   *                 type: string
+   *                 enum: [analyze, improve, explain, generate, refactor, debug, review]
+   *                 description: The action to perform on the code
+   *               code:
+   *                 type: string
+   *                 description: The code to process (required for all actions except generate)
+   *               language:
+   *                 type: string
+   *                 description: Programming language of the code
+   *               prompt:
+   *                 type: string
+   *                 description: Additional instructions or requirements
+   *               context:
+   *                 type: string
+   *                 description: Additional context about the code or project
+   *               maxTokens:
+   *                 type: number
+   *                 description: Maximum tokens in response (default 2000)
+   *     responses:
+   *       200:
+   *         description: Code assistant response
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 action:
+   *                   type: string
+   *                 result:
+   *                   type: string
+   *                 suggestions:
+   *                   type: array
+   *                   items:
+   *                     type: string
+   *                 codeBlocks:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       language:
+   *                         type: string
+   *                       code:
+   *                         type: string
+   *                       description:
+   *                         type: string
+   *                 tokensUsed:
+   *                   type: number
+   *                 model:
+   *                   type: string
+   */
+  app.post("/api/ai/code-assistant", async (req: Request, res: Response) => {
+    try {
+      const body = codeAssistantSchema.parse(req.body);
+      const result = await processCodeAssistant(body);
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: "Code Assistant Error", message: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/ai/code-assistant/actions:
+   *   get:
+   *     summary: Get available code assistant actions
+   *     tags: [AI Services]
+   *     responses:
+   *       200:
+   *         description: List of available actions
+   */
+  app.get("/api/ai/code-assistant/actions", (req: Request, res: Response) => {
+    res.json({
+      actions: getAvailableActions(),
+      descriptions: {
+        analyze: "Analyze code for bugs, performance issues, and best practices",
+        improve: "Improve code quality, fix bugs, and optimize performance",
+        explain: "Explain how the code works in detail",
+        generate: "Generate new code based on requirements",
+        refactor: "Refactor code structure and organization",
+        debug: "Debug code and find root causes of issues",
+        review: "Comprehensive code review with feedback",
+      },
+    });
   });
 
   // ==================== GITHUB ====================

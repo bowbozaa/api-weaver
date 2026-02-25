@@ -11,7 +11,7 @@ interface AIServiceConfig {
 const AI_CONFIGS = {
   claude: {
     baseUrl: "https://api.anthropic.com/v1/messages",
-    defaultModel: "claude-3-5-sonnet-20241022",
+    defaultModel: "claude-sonnet-4-20250514",
   },
   gpt: {
     baseUrl: "https://api.openai.com/v1/chat/completions",

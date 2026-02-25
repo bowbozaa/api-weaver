@@ -2,6 +2,9 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
+import { securityHeaders, csrfProtection } from "./middleware/security";
+import { initWebSocket } from "./services/websocketService";
 
 const app = express();
 const httpServer = createServer(app);
@@ -21,6 +24,10 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Security middleware - headers and CSRF protection
+app.use(securityHeaders);
+app.use(csrfProtection);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -60,6 +67,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize WebSocket server for real-time updates
+  initWebSocket(httpServer);
+
+  // Setup Replit Auth (BEFORE registering other routes)
+  await setupAuth(app);
+  registerAuthRoutes(app);
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

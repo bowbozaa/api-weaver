@@ -1,4 +1,141 @@
 import path from "path";
+import type { Request, Response, NextFunction } from "express";
+import crypto from "crypto";
+
+export function securityHeaders(req: Request, res: Response, next: NextFunction) {
+  const nonce = crypto.randomBytes(16).toString("base64");
+  res.locals.nonce = nonce;
+
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
+  }
+
+  const isProduction = process.env.NODE_ENV === "production";
+  
+  // Swagger UI needs unsafe-inline for scripts to work
+  const isSwaggerRoute = req.path.startsWith("/docs") || req.path.startsWith("/api-docs-spec");
+  
+  let cspDirectives: string[];
+  
+  if (isSwaggerRoute) {
+    // More permissive CSP for Swagger UI documentation (assets loaded from CDN)
+    cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: https: blob:",
+      "connect-src 'self' https://*.replit.dev https://*.replit.com https://*.replit.app wss://*.replit.dev wss://*.replit.app",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+    ];
+  } else if (isProduction) {
+    cspDirectives = [
+      "default-src 'self'",
+      `script-src 'self' 'nonce-${nonce}'`,
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: https: blob:",
+      "connect-src 'self' https://*.replit.dev https://*.replit.com https://*.replit.app wss://*.replit.dev wss://*.replit.app",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+    ];
+  } else {
+    cspDirectives = [
+      "default-src 'self'",
+      `script-src 'self' 'unsafe-inline' 'unsafe-eval'`,
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: https: blob:",
+      "connect-src 'self' ws: wss: https://*.replit.dev https://*.replit.com https://*.replit.app wss://*.replit.dev wss://*.replit.app",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+    ];
+  }
+
+  res.setHeader("Content-Security-Policy", cspDirectives.join("; "));
+
+  next();
+}
+
+export function csrfProtection(req: Request, res: Response, next: NextFunction) {
+  const safeMethods = ["GET", "HEAD", "OPTIONS"];
+  
+  if (safeMethods.includes(req.method)) {
+    return next();
+  }
+
+  if (!req.path.startsWith("/api") && !req.path.startsWith("/mcp")) {
+    return next();
+  }
+
+  const origin = req.get("Origin");
+  const host = req.get("Host");
+  
+  if (!origin) {
+    return next();
+  }
+
+  try {
+    const originUrl = new URL(origin);
+    const allowedHosts = [
+      host,
+      "localhost",
+      "127.0.0.1",
+    ];
+
+    const isAllowedOrigin = allowedHosts.some(allowedHost => {
+      if (!allowedHost) return false;
+      return originUrl.host === allowedHost || 
+             originUrl.host.endsWith(`.${allowedHost}`) ||
+             originUrl.host.includes("replit");
+    });
+
+    if (!isAllowedOrigin) {
+      console.warn(`CSRF: Blocked request from origin ${origin} to host ${host}`);
+      logSecurityEvent(req, "csrf_blocked", { origin, host });
+      return res.status(403).json({ 
+        error: "Forbidden",
+        message: "Cross-origin request blocked" 
+      });
+    }
+  } catch (e) {
+    console.warn(`CSRF: Invalid origin header: ${origin}`);
+    logSecurityEvent(req, "csrf_blocked", { origin, error: "invalid_origin" });
+    return res.status(403).json({ 
+      error: "Forbidden",
+      message: "Invalid origin header" 
+    });
+  }
+
+  next();
+}
+
+function logSecurityEvent(req: Request, eventType: string, details: Record<string, unknown>) {
+  import("../services/auditService").then(({ logAuditEvent }) => {
+    logAuditEvent({
+      eventType: `security.${eventType}` as any,
+      severity: "warning",
+      ip: req.ip || req.socket.remoteAddress,
+      userAgent: req.get("User-Agent"),
+      path: req.path,
+      method: req.method,
+      details,
+    });
+  }).catch(console.error);
+}
 
 // Allowed commands for safe execution
 const SAFE_COMMANDS = [
