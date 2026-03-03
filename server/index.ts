@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -70,9 +71,21 @@ app.use((req, res, next) => {
   // Initialize WebSocket server for real-time updates
   initWebSocket(httpServer);
 
-  // Setup Replit Auth (BEFORE registering other routes)
-  await setupAuth(app);
-  registerAuthRoutes(app);
+  // Setup Replit Auth (skip if not on Replit)
+  if (process.env.REPL_ID) {
+    await setupAuth(app);
+    registerAuthRoutes(app);
+  } else {
+    log("Replit Auth skipped (not running on Replit)", "auth");
+    // Simple session for local dev
+    const session = await import("express-session");
+    app.use(session.default({
+      secret: process.env.SESSION_SECRET || "local-dev-secret",
+      resave: false,
+      saveUninitialized: false,
+      cookie: { secure: false },
+    }));
+  }
 
   await registerRoutes(httpServer, app);
 
@@ -103,7 +116,6 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
     },
     () => {
       log(`serving on port ${port}`);

@@ -5,6 +5,7 @@ node_modules/
 # Environment & Secrets
 .env
 .env.*
+!.env.example
 .dev.vars
 *.credentials
 *.secret
@@ -29,6 +30,7 @@ dist/
 build/
 *.zip
 *.tar.gz
+*.log
 
 # OS files
 .DS_Store
@@ -39,3 +41,7 @@ desktop.ini
 .replit
 replit.nix
 .upm/
+.config/
+
+# Playwright
+.playwright-mcp/
