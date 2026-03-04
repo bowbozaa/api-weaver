@@ -5,6 +5,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { securityHeaders, csrfProtection } from "./middleware/security";
+import passport from "passport";
 import { initWebSocket } from "./services/websocketService";
 
 const app = express();
@@ -71,21 +72,31 @@ app.use((req, res, next) => {
   // Initialize WebSocket server for real-time updates
   initWebSocket(httpServer);
 
-  // Setup Replit Auth (skip if not on Replit)
+  // Setup Auth
   if (process.env.REPL_ID) {
     await setupAuth(app);
-    registerAuthRoutes(app);
   } else {
     log("Replit Auth skipped (not running on Replit)", "auth");
-    // Simple session for local dev
+    // Session + Passport for non-Replit environments
     const session = await import("express-session");
+    app.set("trust proxy", 1);
     app.use(session.default({
       secret: process.env.SESSION_SECRET || "local-dev-secret",
       resave: false,
       saveUninitialized: false,
-      cookie: { secure: false },
+      cookie: { secure: process.env.NODE_ENV === "production" },
     }));
+    app.use(passport.initialize());
+    app.use(passport.session());
+    passport.serializeUser((user: Express.User, cb) => cb(null, user));
+    passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+
+    // Redirect /api/login to frontend login page (Replit OAuth not available)
+    app.get("/api/login", (_req, res) => res.redirect("/login"));
   }
+
+  // Always register auth routes (email/password login works everywhere)
+  registerAuthRoutes(app);
 
   await registerRoutes(httpServer, app);
 
