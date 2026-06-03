@@ -41,6 +41,7 @@ import { getSupportedLanguages, generateSDK } from "./services/sdkGeneratorServi
 import { getAvailableEndpoints, getSampleRequests, executePlaygroundRequest } from "./services/playgroundService";
 import { getSystemStatus, getServiceStatuses, getIncidents, createIncident, updateIncident, getUptimeHistory } from "./services/statusPageService";
 import { getAvailableAgents, startA2AChat, startA2AChatStream, getSession, getAllSessions, deleteSession, clearAllSessions } from "./services/agentOrchestrator";
+import contentMcpRouter from "./content-mcp/routes";
 
 const CONTENT_MCP_URL = `http://${process.env.CONTENT_MCP_HOST || 'localhost'}:${process.env.CONTENT_MCP_PORT || 3001}`;
 const INTEGRATION_MCP_URL = `http://${process.env.INTEGRATION_MCP_HOST || 'localhost'}:${process.env.INTEGRATION_MCP_PORT || 3002}`;
@@ -146,32 +147,10 @@ export async function registerRoutes(
   // MCP Server Proxy Routes
   const validApiKey = process.env.API_KEY;
   
-  const contentMcpProxy = createProxyMiddleware({
-    target: CONTENT_MCP_URL,
-    changeOrigin: true,
-    pathRewrite: { '^/api/content': '/api' },
-    timeout: 30000,
-    on: {
-      proxyReq: (proxyReq: any, req: any) => {
-        const clientApiKey = req.headers["x-api-key"] || req.query.api_key;
-        if (clientApiKey) {
-          proxyReq.setHeader('X-API-KEY', clientApiKey);
-        } else if (validApiKey) {
-          proxyReq.setHeader('X-API-KEY', validApiKey);
-        }
-      },
-      error: (err: Error, req: any, res: any) => {
-        console.error('Content MCP Proxy Error:', err);
-        notifyMcpUnavailable('Content MCP', err.message);
-        if (res && res.status) {
-          res.status(503).json({
-            error: 'Content MCP unavailable',
-            message: err.message,
-          });
-        }
-      },
-    },
-  });
+  // content-mcp is mounted directly (no separate process). The standalone
+  // content-mcp server (port 3001) was never started in dev/prod, so the old
+  // proxy returned 503 (ECONNREFUSED). Mounting the router in-process fixes it;
+  // the main app's middleware (cors/json/apiKeyAuth/rate-limit) already applies.
 
   const integrationMcpProxy = createProxyMiddleware({
     target: INTEGRATION_MCP_URL,
@@ -200,7 +179,7 @@ export async function registerRoutes(
     },
   });
 
-  app.use('/api/content', contentMcpProxy);
+  app.use('/api/content', contentMcpRouter);
   app.use('/api/integration', integrationMcpProxy);
 
   // ============================================
