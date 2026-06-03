@@ -3,7 +3,6 @@ import { createServer, type Server } from "http";
 import rateLimit from "express-rate-limit";
 import cors from "cors";
 import { z } from "zod";
-import { createProxyMiddleware } from "http-proxy-middleware";
 import { storage } from "./storage";
 import { apiKeyAuth } from "./middleware/auth";
 import { requestLogger } from "./middleware/logging";
@@ -42,9 +41,8 @@ import { getAvailableEndpoints, getSampleRequests, executePlaygroundRequest } fr
 import { getSystemStatus, getServiceStatuses, getIncidents, createIncident, updateIncident, getUptimeHistory } from "./services/statusPageService";
 import { getAvailableAgents, startA2AChat, startA2AChatStream, getSession, getAllSessions, deleteSession, clearAllSessions } from "./services/agentOrchestrator";
 import contentMcpRouter from "./content-mcp/routes";
+import integrationMcpRouter from "./integration-mcp/routes";
 
-const CONTENT_MCP_URL = `http://${process.env.CONTENT_MCP_HOST || 'localhost'}:${process.env.CONTENT_MCP_PORT || 3001}`;
-const INTEGRATION_MCP_URL = `http://${process.env.INTEGRATION_MCP_HOST || 'localhost'}:${process.env.INTEGRATION_MCP_PORT || 3002}`;
 
 export async function registerRoutes(
   httpServer: Server,
@@ -144,43 +142,14 @@ export async function registerRoutes(
   // Register integration routes (AI, GitHub, Supabase, etc.)
   registerIntegrationRoutes(app);
 
-  // MCP Server Proxy Routes
-  const validApiKey = process.env.API_KEY;
-  
-  // content-mcp is mounted directly (no separate process). The standalone
-  // content-mcp server (port 3001) was never started in dev/prod, so the old
-  // proxy returned 503 (ECONNREFUSED). Mounting the router in-process fixes it;
-  // the main app's middleware (cors/json/apiKeyAuth/rate-limit) already applies.
-
-  const integrationMcpProxy = createProxyMiddleware({
-    target: INTEGRATION_MCP_URL,
-    changeOrigin: true,
-    pathRewrite: { '^/api/integration': '/api' },
-    timeout: 30000,
-    on: {
-      proxyReq: (proxyReq: any, req: any) => {
-        const clientApiKey = req.headers["x-api-key"] || req.query.api_key;
-        if (clientApiKey) {
-          proxyReq.setHeader('X-API-KEY', clientApiKey);
-        } else if (validApiKey) {
-          proxyReq.setHeader('X-API-KEY', validApiKey);
-        }
-      },
-      error: (err: Error, req: any, res: any) => {
-        console.error('Integration MCP Proxy Error:', err);
-        notifyMcpUnavailable('Integration MCP', err.message);
-        if (res && res.status) {
-          res.status(503).json({
-            error: 'Integration MCP unavailable',
-            message: err.message,
-          });
-        }
-      },
-    },
-  });
-
+  // content-mcp and integration-mcp are mounted directly (no separate process).
+  // The standalone sub-servers (ports 3001/3002) were never started in dev or
+  // the Replit prod deploy, so the old proxies returned 503 (ECONNREFUSED).
+  // Mounting the routers in-process fixes it; the main app's middleware
+  // (cors/json/apiKeyAuth/rate-limit) already applies and external paths are
+  // unchanged.
   app.use('/api/content', contentMcpRouter);
-  app.use('/api/integration', integrationMcpProxy);
+  app.use('/api/integration', integrationMcpRouter);
 
   // ============================================
   // Figma Make API Routes
