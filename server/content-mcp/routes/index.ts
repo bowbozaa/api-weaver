@@ -32,6 +32,20 @@ router.post("/ai/claude", async (req: Request, res: Response) => {
   }
 });
 
+// Central Claude gateway — transparent Anthropic Messages passthrough.
+// Accepts the full native body (model, max_tokens, system, messages, tools)
+// and returns the raw Anthropic response (content blocks, stop_reason, usage),
+// so clients can run tool-calling. Auth via X-API-KEY; the Anthropic key stays
+// server-side. External path: POST /api/content/v1/messages
+router.post("/v1/messages", async (req: Request, res: Response) => {
+  try {
+    const { status, data } = await aiService.callClaudeRaw(req.body);
+    res.status(status).json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post("/ai/gpt", async (req: Request, res: Response) => {
   try {
     const result = await aiService.callGPT(req.body);

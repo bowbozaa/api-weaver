@@ -85,6 +85,33 @@ export async function callClaude(prompt: AIPrompt): Promise<AIResponse> {
   };
 }
 
+// Transparent passthrough to the Anthropic Messages API. Unlike callClaude,
+// this preserves the full native request/response (tools, system, multi-turn
+// messages, stop_reason, usage) so callers can do tool-calling through the
+// gateway. The Anthropic key stays server-side; clients authenticate to
+// api-weaver with X-API-KEY. Used by friday-agent-mesh's planner.
+export async function callClaudeRaw(
+  body: Record<string, any>,
+): Promise<{ status: number; data: any }> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY not configured. Add it to Secrets.");
+  }
+
+  const response = await fetchWithTimeout(AI_CONFIGS.claude.baseUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await response.json();
+  return { status: response.status, data };
+}
+
 export async function callGPT(prompt: AIPrompt): Promise<AIResponse> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
