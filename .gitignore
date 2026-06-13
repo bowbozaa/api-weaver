@@ -45,3 +45,13 @@ replit.nix
 
 # Playwright
 .playwright-mcp/
+
+# --- FRIDAY security hardening (2026-06-14) ---
+.env
+.env.*
+!.env.example
+!.env.sample
+*.key
+*.pem
+credentials.json
+serviceAccountKey.json
