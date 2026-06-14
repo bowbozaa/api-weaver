@@ -1,4 +1,4 @@
-import { callClaude, callGPT, callGemini, callPerplexity } from "./aiProviders";
+import { callClaude, callGPT, callGemini, callPerplexity } from "../content-mcp/services/aiService";
 
 export type AgentId = "claude" | "gpt" | "gemini" | "perplexity" | "comet";
 export type ConversationMode = "chain" | "debate" | "consensus" | "sub-agent";

@@ -19,11 +19,11 @@ const AI_CONFIGS = {
   },
   gemini: {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
-    defaultModel: "gemini-2.0-flash",
+    defaultModel: "gemini-1.5-flash",
   },
   perplexity: {
     baseUrl: "https://api.perplexity.ai/chat/completions",
-    defaultModel: "sonar",
+    defaultModel: "llama-3.1-sonar-small-128k-online",
   },
 };
 

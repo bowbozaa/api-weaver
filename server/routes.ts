@@ -40,8 +40,11 @@ import { getSupportedLanguages, generateSDK } from "./services/sdkGeneratorServi
 import { getAvailableEndpoints, getSampleRequests, executePlaygroundRequest } from "./services/playgroundService";
 import { getSystemStatus, getServiceStatuses, getIncidents, createIncident, updateIncident, getUptimeHistory } from "./services/statusPageService";
 import { getAvailableAgents, startA2AChat, startA2AChatStream, getSession, getAllSessions, deleteSession, clearAllSessions } from "./services/agentOrchestrator";
-import contentMcpRouter from "./content-mcp/routes";
-import integrationMcpRouter from "./integration-mcp/routes";
+import _contentMcpRouterMod from "./content-mcp/routes/index.ts";
+import _integrationMcpRouterMod from "./integration-mcp/routes/index.ts";
+// CJS/ESM interop: tsx in ESM mode returns {default: router}; unwrap if needed
+const contentMcpRouter: any = (_contentMcpRouterMod as any).default ?? _contentMcpRouterMod;
+const integrationMcpRouter: any = (_integrationMcpRouterMod as any).default ?? _integrationMcpRouterMod;
 
 
 export async function registerRoutes(
@@ -54,6 +57,9 @@ export async function registerRoutes(
         /\.replit\.dev$/,
         /\.replit\.app$/,
         /\.replit\.com$/,
+        /\.workers\.dev$/,
+        /\.pages\.dev$/,
+        "https://jarvis-dashboard.banknakorn39.workers.dev",
       ]
     : true;
   
@@ -61,7 +67,7 @@ export async function registerRoutes(
     origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "X-API-KEY", "Authorization"],
-    credentials: process.env.NODE_ENV !== "production",
+    credentials: true,
   }));
 
   // Rate limiting with audit logging
