@@ -1,0 +1,6 @@
+name = "api-weaver"
+main = "src/worker.js"
+compatibility_date = "2024-12-01"
+
+[vars]
+REPLIT_ORIGIN = "https://api-weaver--banknakorn39.replit.app"
