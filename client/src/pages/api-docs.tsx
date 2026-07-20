@@ -64,7 +64,8 @@ const METHOD_COLORS: Record<string, string> = {
   GET: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800",
   POST: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800",
   PUT: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800",
-  DELETE: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+  DELETE:
+    "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
 };
 
 const API_CATEGORIES: EndpointCategory[] = [
@@ -76,7 +77,8 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/api/health",
-        description: "Returns the health status of all connected services and overall system status.",
+        description:
+          "Returns the health status of all connected services and overall system status.",
         auth: false,
         response: {
           status: 200,
@@ -91,7 +93,8 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/api/stats",
-        description: "Returns API usage statistics including request counts, response times, and error rates.",
+        description:
+          "Returns API usage statistics including request counts, response times, and error rates.",
         auth: false,
         response: {
           status: 200,
@@ -106,7 +109,8 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/api/logs",
-        description: "Returns recent API request logs with method, path, status, and duration.",
+        description:
+          "Returns recent API request logs with method, path, status, and duration.",
         auth: false,
         response: {
           status: 200,
@@ -124,7 +128,8 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/api/status/system",
-        description: "Overall system status with uptime metrics and component health.",
+        description:
+          "Overall system status with uptime metrics and component health.",
         auth: false,
         response: {
           status: 200,
@@ -134,7 +139,8 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/api/status/services",
-        description: "Individual service statuses across all connected services.",
+        description:
+          "Individual service statuses across all connected services.",
         auth: false,
       },
       {
@@ -153,11 +159,17 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/api/auth/user",
-        description: "Returns the currently authenticated user's profile information.",
+        description:
+          "Returns the currently authenticated user's profile information.",
         auth: true,
         response: {
           status: 200,
-          body: { id: 1, username: "user", profileImageUrl: "https://...", createdAt: "2026-01-01" },
+          body: {
+            id: 1,
+            username: "user",
+            profileImageUrl: "https://...",
+            createdAt: "2026-01-01",
+          },
         },
       },
       {
@@ -167,7 +179,14 @@ const API_CATEGORIES: EndpointCategory[] = [
         auth: true,
         response: {
           status: 200,
-          body: [{ id: "sess_123", userAgent: "Chrome/120", createdAt: "2026-02-10", expiresAt: "2026-02-17" }],
+          body: [
+            {
+              id: "sess_123",
+              userAgent: "Chrome/120",
+              createdAt: "2026-02-10",
+              expiresAt: "2026-02-17",
+            },
+          ],
         },
       },
       {
@@ -197,7 +216,11 @@ const API_CATEGORIES: EndpointCategory[] = [
         request: { headers: { "X-API-KEY": "your-api-key" } },
         response: {
           status: 200,
-          body: { path: "src/index.ts", content: "console.log('hello');", size: 25 },
+          body: {
+            path: "src/index.ts",
+            content: "console.log('hello');",
+            size: 25,
+          },
         },
       },
       {
@@ -206,10 +229,16 @@ const API_CATEGORIES: EndpointCategory[] = [
         description: "Create or update a file with the specified content.",
         auth: true,
         request: {
-          headers: { "X-API-KEY": "your-api-key", "Content-Type": "application/json" },
+          headers: {
+            "X-API-KEY": "your-api-key",
+            "Content-Type": "application/json",
+          },
           body: { path: "src/index.ts", content: "console.log('hello');" },
         },
-        response: { status: 200, body: { message: "File written", path: "src/index.ts" } },
+        response: {
+          status: 200,
+          body: { message: "File written", path: "src/index.ts" },
+        },
       },
       {
         method: "DELETE",
@@ -238,15 +267,24 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "POST",
         path: "/api/execute",
-        description: "Execute a whitelisted shell command. Only safe commands (ls, cat, git, npm, etc.) are allowed.",
+        description:
+          "Execute a whitelisted shell command. Only safe commands (ls, cat, git, npm, etc.) are allowed.",
         auth: true,
         request: {
-          headers: { "X-API-KEY": "your-api-key", "Content-Type": "application/json" },
+          headers: {
+            "X-API-KEY": "your-api-key",
+            "Content-Type": "application/json",
+          },
           body: { command: "echo 'Hello World'", timeout: 5000 },
         },
         response: {
           status: 200,
-          body: { stdout: "Hello World\n", stderr: "", exitCode: 0, duration: 15 },
+          body: {
+            stdout: "Hello World\n",
+            stderr: "",
+            exitCode: 0,
+            duration: 15,
+          },
         },
       },
     ],
@@ -254,7 +292,8 @@ const API_CATEGORIES: EndpointCategory[] = [
   {
     name: "AI Services",
     icon: Bot,
-    description: "Multi-model AI integration with Claude, GPT, Gemini, and Perplexity",
+    description:
+      "Multi-model AI integration with Claude, GPT, Gemini, and Perplexity",
     endpoints: [
       {
         method: "POST",
@@ -262,12 +301,19 @@ const API_CATEGORIES: EndpointCategory[] = [
         description: "Send a prompt to the default AI model (Claude).",
         auth: true,
         request: {
-          headers: { "X-API-KEY": "your-api-key", "Content-Type": "application/json" },
+          headers: {
+            "X-API-KEY": "your-api-key",
+            "Content-Type": "application/json",
+          },
           body: { prompt: "Explain what an API gateway is", maxTokens: 500 },
         },
         response: {
           status: 200,
-          body: { response: "An API gateway is...", model: "claude-3-5-sonnet", tokensUsed: 350 },
+          body: {
+            response: "An API gateway is...",
+            model: "claude-sonnet-5",
+            tokensUsed: 350,
+          },
         },
       },
       {
@@ -298,9 +344,15 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "POST",
         path: "/api/content/ai/perplexity",
-        description: "Send a prompt to Perplexity AI for web-search-backed answers.",
+        description:
+          "Send a prompt to Perplexity AI for web-search-backed answers.",
         auth: true,
-        request: { body: { prompt: "What are the latest trends in AI?", maxTokens: 1000 } },
+        request: {
+          body: {
+            prompt: "What are the latest trends in AI?",
+            maxTokens: 1000,
+          },
+        },
       },
     ],
   },
@@ -312,19 +364,26 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/api/a2a/agents",
-        description: "List all available AI agents with their availability status.",
+        description:
+          "List all available AI agents with their availability status.",
         auth: false,
         response: {
           status: 200,
           body: [
-            { id: "claude", name: "Claude (Anthropic)", role: "Analytical Thinker", available: true },
+            {
+              id: "claude",
+              name: "Claude (Anthropic)",
+              role: "Analytical Thinker",
+              available: true,
+            },
           ],
         },
       },
       {
         method: "POST",
         path: "/api/a2a/chat",
-        description: "Start a multi-agent conversation with specified agents and mode.",
+        description:
+          "Start a multi-agent conversation with specified agents and mode.",
         auth: false,
         request: {
           body: {
@@ -338,7 +397,8 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "POST",
         path: "/api/a2a/chat/stream",
-        description: "Start a streaming multi-agent conversation with real-time SSE events.",
+        description:
+          "Start a streaming multi-agent conversation with real-time SSE events.",
         auth: false,
         request: {
           body: {
@@ -380,7 +440,9 @@ const API_CATEGORIES: EndpointCategory[] = [
         auth: true,
         response: {
           status: 200,
-          body: [{ name: "my-repo", full_name: "user/my-repo", private: false }],
+          body: [
+            { name: "my-repo", full_name: "user/my-repo", private: false },
+          ],
         },
       },
       {
@@ -467,14 +529,19 @@ const API_CATEGORIES: EndpointCategory[] = [
         response: {
           status: 200,
           body: [
-            { eventType: "api.access", severity: "info", timestamp: "2026-02-10T12:00:00Z" },
+            {
+              eventType: "api.access",
+              severity: "info",
+              timestamp: "2026-02-10T12:00:00Z",
+            },
           ],
         },
       },
       {
         method: "GET",
         path: "/api/security/api-key-status",
-        description: "Check the current API key status and rotation recommendations.",
+        description:
+          "Check the current API key status and rotation recommendations.",
         auth: true,
       },
       {
@@ -502,7 +569,10 @@ const API_CATEGORIES: EndpointCategory[] = [
         description: "Register a new webhook for specific events.",
         auth: true,
         request: {
-          body: { url: "https://example.com/webhook", events: ["api.request", "security.alert"] },
+          body: {
+            url: "https://example.com/webhook",
+            events: ["api.request", "security.alert"],
+          },
         },
       },
       {
@@ -590,7 +660,8 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/api/sdk/languages",
-        description: "List supported SDK languages (JavaScript, Python, Go, etc.).",
+        description:
+          "List supported SDK languages (JavaScript, Python, Go, etc.).",
         auth: false,
       },
       {
@@ -610,13 +681,15 @@ const API_CATEGORIES: EndpointCategory[] = [
       {
         method: "GET",
         path: "/mcp",
-        description: "Establish an SSE connection for MCP communication. Use api_key query parameter for auth.",
+        description:
+          "Establish an SSE connection for MCP communication. Use api_key query parameter for auth.",
         auth: true,
       },
       {
         method: "POST",
         path: "/mcp",
-        description: "Send an MCP tool call request (read_file, write_file, execute_command, etc.).",
+        description:
+          "Send an MCP tool call request (read_file, write_file, execute_command, etc.).",
         auth: true,
         request: {
           body: {
@@ -638,8 +711,17 @@ function CopyButton({ text }: { text: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <Button variant="ghost" size="icon" onClick={copy} data-testid="button-copy-code">
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={copy}
+      data-testid="button-copy-code"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
     </Button>
   );
 }
@@ -661,32 +743,43 @@ function EndpointItem({ endpoint }: { endpoint: EndpointDoc }) {
           >
             {endpoint.method}
           </Badge>
-          <code className="text-sm font-mono flex-1 truncate">{endpoint.path}</code>
+          <code className="text-sm font-mono flex-1 truncate">
+            {endpoint.path}
+          </code>
           <div className="flex items-center gap-2 shrink-0">
             {endpoint.auth ? (
               <Lock className="h-3.5 w-3.5 text-muted-foreground" />
             ) : (
               <Unlock className="h-3.5 w-3.5 text-muted-foreground/40" />
             )}
-            {hasDetails && (
-              open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-            )}
+            {hasDetails &&
+              (open ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+              ))}
           </div>
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="px-3 pb-3 space-y-3">
-          <p className="text-sm text-muted-foreground pl-[5.5rem]">{endpoint.description}</p>
+          <p className="text-sm text-muted-foreground pl-[5.5rem]">
+            {endpoint.description}
+          </p>
 
           {endpoint.request?.headers && (
             <div className="pl-[5.5rem]">
-              <span className="text-xs font-medium text-muted-foreground block mb-1">Headers</span>
+              <span className="text-xs font-medium text-muted-foreground block mb-1">
+                Headers
+              </span>
               <div className="bg-muted/50 rounded-md p-3 relative">
                 <pre className="font-mono text-xs whitespace-pre-wrap">
                   {JSON.stringify(endpoint.request.headers, null, 2)}
                 </pre>
                 <div className="absolute top-1 right-1">
-                  <CopyButton text={JSON.stringify(endpoint.request.headers, null, 2)} />
+                  <CopyButton
+                    text={JSON.stringify(endpoint.request.headers, null, 2)}
+                  />
                 </div>
               </div>
             </div>
@@ -694,13 +787,17 @@ function EndpointItem({ endpoint }: { endpoint: EndpointDoc }) {
 
           {endpoint.request?.body && (
             <div className="pl-[5.5rem]">
-              <span className="text-xs font-medium text-muted-foreground block mb-1">Request Body</span>
+              <span className="text-xs font-medium text-muted-foreground block mb-1">
+                Request Body
+              </span>
               <div className="bg-muted/50 rounded-md p-3 relative">
                 <pre className="font-mono text-xs whitespace-pre-wrap">
                   {JSON.stringify(endpoint.request.body, null, 2)}
                 </pre>
                 <div className="absolute top-1 right-1">
-                  <CopyButton text={JSON.stringify(endpoint.request.body, null, 2)} />
+                  <CopyButton
+                    text={JSON.stringify(endpoint.request.body, null, 2)}
+                  />
                 </div>
               </div>
             </div>
@@ -716,7 +813,9 @@ function EndpointItem({ endpoint }: { endpoint: EndpointDoc }) {
                   {JSON.stringify(endpoint.response.body, null, 2)}
                 </pre>
                 <div className="absolute top-1 right-1">
-                  <CopyButton text={JSON.stringify(endpoint.response.body, null, 2)} />
+                  <CopyButton
+                    text={JSON.stringify(endpoint.response.body, null, 2)}
+                  />
                 </div>
               </div>
             </div>
@@ -731,7 +830,7 @@ export default function ApiDocsPage() {
   usePageTitle("API Documentation");
   const [search, setSearch] = useState("");
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(API_CATEGORIES.map((c) => c.name))
+    new Set(API_CATEGORIES.map((c) => c.name)),
   );
 
   const toggleCategory = (name: string) => {
@@ -753,15 +852,18 @@ export default function ApiDocsPage() {
           ep.path.toLowerCase().includes(q) ||
           ep.description.toLowerCase().includes(q) ||
           ep.method.toLowerCase().includes(q) ||
-          cat.name.toLowerCase().includes(q)
+          cat.name.toLowerCase().includes(q),
       ),
     })).filter((cat) => cat.endpoints.length > 0);
   }, [search]);
 
-  const totalEndpoints = API_CATEGORIES.reduce((sum, c) => sum + c.endpoints.length, 0);
+  const totalEndpoints = API_CATEGORIES.reduce(
+    (sum, c) => sum + c.endpoints.length,
+    0,
+  );
   const publicEndpoints = API_CATEGORIES.reduce(
     (sum, c) => sum + c.endpoints.filter((e) => !e.auth).length,
-    0
+    0,
   );
 
   return (
@@ -780,17 +882,26 @@ export default function ApiDocsPage() {
                   API Documentation
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  {totalEndpoints} endpoints across {API_CATEGORIES.length} categories
+                  {totalEndpoints} endpoints across {API_CATEGORIES.length}{" "}
+                  categories
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="gap-1.5" data-testid="badge-docs">
+              <Badge
+                variant="outline"
+                className="gap-1.5"
+                data-testid="badge-docs"
+              >
                 <BookOpen className="h-3 w-3" />
                 v2.0
               </Badge>
               <a href="/docs" target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" data-testid="button-swagger">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="button-swagger"
+                >
                   <Server className="h-3.5 w-3.5 mr-1.5" />
                   Swagger UI
                 </Button>
@@ -820,7 +931,9 @@ export default function ApiDocsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-muted-foreground">Total Endpoints</span>
+                  <span className="text-sm text-muted-foreground">
+                    Total Endpoints
+                  </span>
                   <Badge variant="secondary">{totalEndpoints}</Badge>
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -828,26 +941,45 @@ export default function ApiDocsPage() {
                   <Badge variant="secondary">{publicEndpoints}</Badge>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-muted-foreground">Protected</span>
-                  <Badge variant="secondary">{totalEndpoints - publicEndpoints}</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    Protected
+                  </span>
+                  <Badge variant="secondary">
+                    {totalEndpoints - publicEndpoints}
+                  </Badge>
                 </div>
                 <Separator />
                 <div className="space-y-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">Authentication</span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Authentication
+                  </span>
                   <p className="text-xs text-muted-foreground">
-                    Protected endpoints require the <code className="text-xs bg-muted px-1 rounded">X-API-KEY</code> header.
+                    Protected endpoints require the{" "}
+                    <code className="text-xs bg-muted px-1 rounded">
+                      X-API-KEY
+                    </code>{" "}
+                    header.
                   </p>
                 </div>
                 <div className="space-y-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">Rate Limiting</span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Rate Limiting
+                  </span>
                   <p className="text-xs text-muted-foreground">
                     100 requests per 15 minutes per IP address.
                   </p>
                 </div>
                 <div className="space-y-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">Base URL</span>
-                  <code className="text-xs bg-muted px-2 py-1 rounded block" data-testid="text-base-url">
-                    {typeof window !== "undefined" ? window.location.origin : "https://your-app.replit.app"}
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Base URL
+                  </span>
+                  <code
+                    className="text-xs bg-muted px-2 py-1 rounded block"
+                    data-testid="text-base-url"
+                  >
+                    {typeof window !== "undefined"
+                      ? window.location.origin
+                      : "https://your-app.replit.app"}
                   </code>
                 </div>
               </CardContent>
@@ -865,13 +997,21 @@ export default function ApiDocsPage() {
                         key={cat.name}
                         className="w-full flex items-center gap-2 p-2 rounded-md text-left text-sm hover-elevate"
                         onClick={() => {
-                          document.getElementById(`cat-${cat.name}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          document
+                            .getElementById(`cat-${cat.name}`)
+                            ?.scrollIntoView({
+                              behavior: "smooth",
+                              block: "start",
+                            });
                         }}
                         data-testid={`nav-category-${cat.name.toLowerCase().replace(/\s+/g, "-")}`}
                       >
                         <cat.icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         <span className="truncate">{cat.name}</span>
-                        <Badge variant="secondary" className="ml-auto text-[10px]">
+                        <Badge
+                          variant="secondary"
+                          className="ml-auto text-[10px]"
+                        >
                           {cat.endpoints.length}
                         </Badge>
                       </button>
@@ -887,7 +1027,10 @@ export default function ApiDocsPage() {
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-16">
                   <Search className="h-12 w-12 text-muted-foreground/30 mb-4" />
-                  <p className="text-sm text-muted-foreground" data-testid="text-no-results">
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="text-no-results"
+                  >
                     No endpoints match "{search}"
                   </p>
                 </CardContent>
@@ -903,14 +1046,21 @@ export default function ApiDocsPage() {
                       <div className="flex items-center gap-3">
                         <cat.icon className="h-5 w-5 text-muted-foreground" />
                         <div>
-                          <CardTitle className="text-base" data-testid={`text-category-${cat.name.toLowerCase().replace(/\s+/g, "-")}`}>
+                          <CardTitle
+                            className="text-base"
+                            data-testid={`text-category-${cat.name.toLowerCase().replace(/\s+/g, "-")}`}
+                          >
                             {cat.name}
                           </CardTitle>
-                          <p className="text-xs text-muted-foreground mt-0.5">{cat.description}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {cat.description}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary">{cat.endpoints.length}</Badge>
+                        <Badge variant="secondary">
+                          {cat.endpoints.length}
+                        </Badge>
                         {expandedCategories.has(cat.name) ? (
                           <ChevronDown className="h-4 w-4 text-muted-foreground" />
                         ) : (
@@ -923,7 +1073,10 @@ export default function ApiDocsPage() {
                     <CardContent className="pt-0">
                       <div className="divide-y">
                         {cat.endpoints.map((ep, i) => (
-                          <EndpointItem key={`${ep.method}-${ep.path}-${i}`} endpoint={ep} />
+                          <EndpointItem
+                            key={`${ep.method}-${ep.path}-${i}`}
+                            endpoint={ep}
+                          />
                         ))}
                       </div>
                     </CardContent>

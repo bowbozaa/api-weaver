@@ -21,7 +21,7 @@ interface AIServiceConfig {
 const AI_CONFIGS = {
   claude: {
     baseUrl: "https://api.anthropic.com/v1/messages",
-    defaultModel: "claude-3-5-sonnet-20241022",
+    defaultModel: "claude-sonnet-5",
   },
   gpt: {
     baseUrl: "https://api.openai.com/v1/chat/completions",
@@ -37,10 +37,13 @@ const AI_CONFIGS = {
   },
 };
 
-async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  
+
   try {
     const response = await fetch(url, {
       ...options,
@@ -122,7 +125,7 @@ export async function callGPT(prompt: AIPrompt): Promise<AIResponse> {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: prompt.model || AI_CONFIGS.gpt.defaultModel,
@@ -189,7 +192,7 @@ export async function callPerplexity(prompt: AIPrompt): Promise<AIResponse> {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: prompt.model || AI_CONFIGS.perplexity.defaultModel,
@@ -234,7 +237,7 @@ export async function compareAllAIs(prompt: AIPrompt): Promise<{
         results[name] = { error: error.message };
       }
       timing[name] = Date.now() - start;
-    })
+    }),
   );
 
   return { results, timing };
