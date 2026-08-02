@@ -4,3 +4,8 @@ compatibility_date = "2024-12-01"
 
 [vars]
 REPLIT_ORIGIN = "https://api-weaver--banknakorn39.replit.app"
+
+# เปิด logs/traces ให้ production ไม่เป็นกล่องดำ · sampling 20% คุมค่าใช้จ่าย (ตั้ง 2026-08-03)
+[observability]
+enabled = true
+head_sampling_rate = 0.2
